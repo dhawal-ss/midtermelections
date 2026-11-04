@@ -25,21 +25,23 @@ This section lists what works and what doesn't, so nobody mistakes the coverage 
 | PostgreSQL schema (43 tables, 4 views, integrity triggers) | ✅ implemented, tested |
 | Reference seed: 51 jurisdictions, 435 House seats + DC delegate, 35 Senate contests (33 Class II + FL/OH specials), 36 governor races | ✅ implemented, tested |
 | Raw-record provenance (immutable, content-hashed, API keys redacted) | ✅ implemented, tested |
-| OpenFEC: candidates, committees, totals, Schedule A/B/E, election calendar | ✅ implemented, tested with mocked HTTP |
-| Census ACS demographics (states + congressional districts) | ✅ implemented, tested with fake client |
-| MIT Election Lab historical returns (Harvard Dataverse) | ✅ implemented, loader tested |
-| Election.org CSV downloads (schema-change detection, FEC-ID cross-reference) | ✅ implemented, **not tested against live files** |
+| OpenFEC: candidates, committees, totals, Schedule A/B/E, election calendar | ✅ **run live 2026-11-04**: 4,426 candidates, 6,870 committees, 3,942 financial summaries, 242 election dates; contributions/IEs loaded as a bounded first sample (see below) |
+| Census ACS demographics (states + congressional districts) | ✅ **run live**: 51 states + 436 districts, all matched to seeded districts |
+| MIT Election Lab historical returns (Harvard Dataverse) | ⚠️ Senate **loaded live** (1,080 rows, 2014–2024). House file requires a Dataverse guestbook form: download it in a browser, then `--only historical_file --dataset us_house --file <path>` |
+| Election.org CSV downloads (schema-change detection, FEC-ID cross-reference) | ✅ **run live**: 4,338 of 4,360 candidates matched on FEC ID; all 471 federal contests match the seeded map (now `corroborated`) |
 | Results pipeline: snapshots, source precedence, certification, race calls, recounts | ✅ implemented, tested |
 | Generic CSV adapter for official state/county results exports | ✅ implemented, tested |
 | Polls (CSV + civicAPI), EAC/state aggregate voter statistics (CSV) | ✅ implemented, mapping-driven |
 | Verification jobs, discrepancy tracking, daily coverage report | ✅ implemented, tested |
 | APScheduler runner, REST API, CSV export, Docker | ✅ implemented |
-| civicAPI endpoints | ⚠️ client ready, **endpoint paths/field maps deliberately blank**: fill them in from the provider's v2 docs, then set `enabled: true` |
+| civicAPI live results | ⚠️ configured from the live schema (`race/search`) and tested on a recorded response; the service returned HTTP 502 throughout 2026-11-04 so no live load yet. Only `Governor` is mapped: add Senate/House type labels once observed |
 | State-specific live results adapters | ❌ **0 of 51 implemented**. Every state is `adapter_status: not_implemented`. Load official exports with the generic CSV adapter in the meantime |
 | State ballot-qualification feeds | ❌ not implemented. `ballot_status` stays `unknown` until a state source provides evidence |
 | State legislative / local contests | ❌ schema supports them; no data source wired up |
 | AP Elections API | ❌ commercial; not integrated |
-| Live verification of the state URLs in `config/sources.yaml` | ⚠️ written from public knowledge and **unverified**. Run `python -m scripts.verify_sources` |
+
+**Finance volume.** Itemized contributions (Schedule A) run to tens of millions of rows. The first live run loaded 9,566 contributions for the 24 largest campaigns and 4,000 independent expenditures (Schedule E has about 70,800 for 2026). Downloads go oldest-first and later runs resume from the newest stored date, so scheduled runs walk forward to the present. Use `--committee-limit` / `--max-pages` to control volume. OpenFEC returns `X-RateLimit-Limit: 60` (per minute); the client stays under 1,000/hour.
+| Live verification of the state URLs in `config/sources.yaml` | ✅ **checked 2026-11-04**: 37/51 jurisdictions all-OK; 49/51 reachable (the rest of the failures are 403 bot-blocking). Open: Alaska (TLS chain fails verification), Michigan results (connection reset). LA and FL URLs corrected |
 
 ---
 
