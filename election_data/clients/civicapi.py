@@ -21,7 +21,8 @@ class CivicAPIClient:
     def __init__(self, http: HttpClient | None = None, base_url: str | None = None):
         self.cfg = config.source_config("civicapi")
         self.base_url = (base_url or config.CIVICAPI_BASE_URL).rstrip("/")
-        self.http = http or HttpClient(calls_per_hour=1200, timeout=45)
+        # One request per second, short retries: the service is often overloaded on election night
+        self.http = http or HttpClient(calls_per_hour=3600, timeout=45, max_attempts=3, retry_wait_initial=2.0)
 
     def endpoint(self, name: str) -> str:
         path = (self.cfg.get("endpoints") or {}).get(name)

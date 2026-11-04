@@ -76,8 +76,13 @@ sources:
       status: status
       polls: null                   # not identified in the v2 docs yet
     query:
-      results: {startDate: "2026-11-03", endDate: "2026-11-03", country: US}
-    page_size: 100
+      results:
+        # Governors and other statewide races (one paged search)
+        - params: {startDate: "2026-11-03", endDate: "2026-11-03", country: US, election_type: Statewide}
+        # US Senate + US House: one General-election search per state (returns just the federal races)
+        - params: {startDate: "2026-11-03", endDate: "2026-11-03", country: US, election_type: General}
+          per_state: true
+    page_size: 500
     field_maps:
       results:
         records_path: races
@@ -94,11 +99,12 @@ sources:
         winner_flag: winner
         caller: civicAPI
       polls: {}
-    # civicAPI race 'type' -> office modeled in this project. Only labels seen in live
-    # responses are listed; add Senate/House labels once observed (unmapped types are
-    # logged on each run).
+    # civicAPI race 'type' -> office modeled in this project (labels observed in live
+    # responses on election night; unmapped types are logged on each run).
     office_types:
       Governor: GOVERNOR
+      US Senate: US SENATE
+      House of Representatives: US HOUSE
 
   census:
     name: US Census Bureau API

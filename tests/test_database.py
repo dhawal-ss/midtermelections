@@ -301,7 +301,9 @@ def test_civicapi_results_from_recorded_response(conn):
             self.payload = payload
 
         def fetch(self, endpoint, params=None):
-            return self.payload, f"https://civicapi.org/api/v2/{endpoint}"
+            # The recorded page answers the statewide query; per-state queries return nothing here
+            payload = self.payload if not (params or {}).get("province") else {"races": []}
+            return payload, f"https://civicapi.org/api/v2/{endpoint}"
 
     # official state data first, then civicAPI: civicAPI must not override it
     with IngestionRun(conn, "state:GA", "r") as run:
@@ -393,3 +395,11 @@ def test_live_api_endpoints(conn, db_url, monkeypatch):
     page = client.get("/")
     assert page.status_code == 200 and "Midterms 2026" in page.text
     assert client.get("/static/app.js").status_code == 200
+
+
+
+def test_civicapi_district_numbers():
+    from election_data.ingestion.supplemental import _district_number
+    assert _district_number("GA-04") == "04"
+    assert _district_number("WY-AL") == "00"
+    assert _district_number(None) is None

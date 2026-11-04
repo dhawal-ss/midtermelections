@@ -17,6 +17,7 @@ from the provider's current documentation without code changes. Mapping keys:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -67,40 +68,54 @@ def ingest_civicapi_results(conn: psycopg.Connection, client: CivicAPIClient | N
     client = client or CivicAPIClient()
     fmap = client.field_map("results")
     office_types = {k.lower(): v for k, v in (client.cfg.get("office_types") or {}).items()}
-    query = {**(client.cfg.get("query") or {}).get("results", {}), **(params or {})}
+    query_cfg = (client.cfg.get("query") or {}).get("results", {})
+    # A query is either one parameter set or a list of {params, per_state} entries; per_state
+    # entries are repeated with province=<code> for all 50 states + DC (one request each).
+    queries: list[dict[str, Any]] = []
+    for q in (query_cfg if isinstance(query_cfg, list) else [{"params": query_cfg}]):
+        base = {**q.get("params", {}), **(params or {})}
+        if q.get("per_state"):
+            queries += [{**base, "province": code} for code in reference.STATES]
+        else:
+            queries.append(base)
     page_size = int(client.cfg.get("page_size", 100))
     unmapped: dict[str, int] = {}
-    with IngestionRun(conn, "civicapi", "live_results", {"params": query}) as run:
-        offset, pages = 0, 0
-        while True:
-            data, url = client.fetch_named("results", {**query, "limit": page_size, "offset": offset})
-            races = dig(data, fmap.get("records_path")) or []
-            for race in races:
-                raw = run.store_raw("civicapi_race", race, str(dig(race, fmap.get("race_id")) or ""), url)
-                office = office_types.get(str(dig(race, fmap["office"]) or "").lower())
-                state = _state(dig(race, fmap["state"]))
-                if office is None or state is None:
-                    label = str(dig(race, fmap["office"]))
-                    unmapped[label] = unmapped.get(label, 0) + 1
-                    continue
+    with IngestionRun(conn, "civicapi", "live_results", {"queries": len(queries)}) as run:
+        for query in queries:
+            offset, pages = 0, 0
+            while True:
                 try:
-                    observations = list(_civicapi_race_observations(race, fmap, office, state, url))
-                except (KeyError, ValueError) as exc:
-                    run.record_failure(f"civicAPI race {dig(race, fmap.get('race_id'))}: {exc}")
-                    continue
-                record_results(conn, run, observations, raw.id)
-                _corroborate_contest(conn, observations)
-                for obs in observations:
-                    if obs.extra.get("winner"):
-                        # civicAPI exposes no call timestamp; the first time we observe the call is used.
-                        record_race_call(conn, run, obs.contest_key, fmap.get("caller", "civicAPI"),
-                                         datetime.now(timezone.utc).replace(microsecond=0, second=0),
-                                         obs.choice_label, raw_record_id=raw.id)
-            conn.commit()
-            pages += 1
-            if len(races) < page_size or (max_pages and pages >= max_pages):
-                break
-            offset += page_size
+                    data, url = client.fetch_named("results", {**query, "limit": page_size, "offset": offset})
+                except Exception as exc:  # one failed request (e.g. a 502) must not lose the rest of the cycle
+                    run.record_failure(f"civicAPI {query.get('province') or query.get('election_type')}: {exc}")
+                    break
+                races = dig(data, fmap.get("records_path")) or []
+                for race in races:
+                    raw = run.store_raw("civicapi_race", race, str(dig(race, fmap.get("race_id")) or ""), url)
+                    office = office_types.get(str(dig(race, fmap["office"]) or "").lower())
+                    state = _state(dig(race, fmap["state"]))
+                    if office is None or state is None:
+                        label = str(dig(race, fmap["office"]))
+                        unmapped[label] = unmapped.get(label, 0) + 1
+                        continue
+                    try:
+                        observations = list(_civicapi_race_observations(race, fmap, office, state, url))
+                    except (KeyError, ValueError) as exc:
+                        run.record_failure(f"civicAPI race {dig(race, fmap.get('race_id'))}: {exc}")
+                        continue
+                    record_results(conn, run, observations, raw.id)
+                    _corroborate_contest(conn, observations)
+                    for obs in observations:
+                        if obs.extra.get("winner"):
+                            # civicAPI exposes no call timestamp; the first time we observe the call is used.
+                            record_race_call(conn, run, obs.contest_key, fmap.get("caller", "civicAPI"),
+                                             datetime.now(timezone.utc).replace(microsecond=0, second=0),
+                                             obs.choice_label, raw_record_id=raw.id)
+                conn.commit()
+                pages += 1
+                if len(races) < page_size or (max_pages and pages >= max_pages):
+                    break
+                offset += page_size
         if unmapped:
             top = sorted(unmapped.items(), key=lambda kv: -kv[1])[:15]
             log.info("civicAPI race types not mapped to modeled offices: %s", top)
@@ -112,7 +127,7 @@ def _civicapi_race_observations(race: dict[str, Any], fmap: dict[str, str], offi
     for required in ("state", "office", "candidates_path", "choice", "votes"):
         if not fmap.get(required):
             raise KeyError(f"field_maps.results.{required} is not configured")
-    key = contest_key_for(office, state, dig(race, fmap.get("district")))
+    key = contest_key_for(office, state, _district_number(dig(race, fmap.get("district"))))
     pct_reporting = dig(race, fmap.get("percent_reporting"))
     for cand in dig(race, fmap["candidates_path"]) or []:
         votes = dig(cand, fmap["votes"])
@@ -126,6 +141,17 @@ def _civicapi_race_observations(race: dict[str, Any], fmap: dict[str, str], offi
             party=dig(cand, fmap.get("party")) if fmap.get("party") else None,
             extra={"winner": bool(dig(cand, fmap.get("winner_flag"))) if fmap.get("winner_flag") else False},
         )
+
+
+def _district_number(value: Any) -> str | None:
+    """'GA-04' -> '04'; 'WY-AL' / at-large -> '00'; None stays None (statewide races)."""
+    if value in (None, ""):
+        return None
+    text = str(value).upper()
+    if text.endswith("-AL") or "AT-LARGE" in text or text == "AL":
+        return "00"
+    digits = re.sub(r"\D", "", text)
+    return digits.zfill(2) if digits else None
 
 
 def _corroborate_contest(conn: psycopg.Connection, observations: list[ResultObservation]) -> None:

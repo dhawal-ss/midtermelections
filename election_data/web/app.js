@@ -49,6 +49,28 @@ async function getJSON(url) {
   return res.json();
 }
 
+// Two ways to run: against the live API (server mode) or from exported JSON files (snapshot mode,
+// used when the dashboard is published as a static page). Routes are plain #names in both.
+const STATIC = document.querySelector('meta[name="dashboard-mode"]')?.content === "static";
+const DATASETS = { sim: "Simulated night", real: "Real data" };
+let dataset = (() => { try { return localStorage.getItem("dataset") || "sim"; } catch { return "sim"; } })();
+if (!DATASETS[dataset]) dataset = "sim";
+const cache = new Map();
+const cached = (url) => { if (!cache.has(url)) cache.set(url, getJSON(url).catch((e) => { cache.delete(url); throw e; })); return cache.get(url); };
+const slug = (key) => key.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+const raceHref = (key) => `#race-${slug(key)}`;
+const officeOfSlug = (sl) => (sl.includes("us-senate") ? "senate" : sl.includes("us-house") ? "house" : "governor");
+const api = {
+  summary: () => (STATIC ? cached(`data/${dataset}/summary.json`) : getJSON("/live/summary")),
+  races: (office) => (STATIC ? cached(`data/${dataset}/races-${office}.json`) : getJSON(`/live/races?office=${office}`)),
+  race: async (sl) => {
+    if (!STATIC) return getJSON(`/live/races/${encodeURIComponent(sl)}`);
+    const bundle = await cached(`data/${dataset}/details-${officeOfSlug(sl)}.json`);
+    if (!bundle[sl]) throw new Error("Race not found in this snapshot");
+    return bundle[sl];
+  },
+};
+
 // ---------- classification ----------
 function tier(r) {
   if (!r || !r.leader_party) return "none";
@@ -93,10 +115,10 @@ const partyTag = (p) => h("span", { class: `party-tag ${p || "OTHER"}`, "aria-la
 // ---------- header / mode ----------
 function setMode(mode, last) {
   const el = document.getElementById("mode");
-  el.className = `mode ${mode}`;
+  el.className = `mode ${STATIC && mode === "live" ? "" : mode}`;
   document.getElementById("mode-text").textContent =
-    mode === "simulation" ? "Simulated data" : mode === "live" ? "Live" : "Awaiting results";
-  document.getElementById("updated").textContent = last ? `Model updated ${timeText(last)}` : "";
+    mode === "simulation" ? "Simulated data" : mode === "live" ? (STATIC ? "Snapshot" : "Live") : "Awaiting results";
+  if (last) document.getElementById("updated").textContent = `Model updated ${timeText(last)}`;
 }
 function modeBanner(mode) {
   if (mode === "simulation") {
@@ -304,7 +326,7 @@ function tileMap(racesByOffice, initial = "senate") {
       const style = { gridColumn: `${c + 1}`, gridRow: `${row + 1}`, background: fill };
       const label = r ? `${STATE_NAMES[code]}: ${r.leader_party ? `${PARTY_NAME[r.leader_party]} ${probText(r.leader_prob)}` : "awaiting"} (${STATUS_LABEL[r.status]})` : `${STATE_NAMES[code]}: no ${current} race`;
       const tile = r
-        ? h("a", { class: `tile race${isDarkFill(fill) ? " dark-fill" : ""}`, href: `#/race/${encodeURIComponent(r.contest_key)}`, style, title: label, "aria-label": label },
+        ? h("a", { class: `tile race${isDarkFill(fill) ? " dark-fill" : ""}`, href: raceHref(r.contest_key), style, title: label, "aria-label": label },
             code, h("small", { class: "num" }, r.leader_party ? `${PARTY_LETTER[r.leader_party]} ${probText(r.leader_prob)}` : "—"))
         : h("div", { class: "tile", style, title: label, "aria-label": label }, code);
       map.append(tile);
@@ -332,7 +354,7 @@ function raceRow(r) {
           h("span", { class: "val num" }, total ? pct(c.share, 1) : "—")),
         h("div", { class: "bar" }, h("i", { style: { width: `${(c.share || 0) * 100}%`, background: partyColor(c.party) } }))))
     : [h("div", { class: "cand-line" }, h("span", { class: "name" }, h("span", { class: "n" }, "Awaiting results")), h("span", {}))];
-  return h("a", { class: "race-row", href: `#/race/${encodeURIComponent(r.contest_key)}` },
+  return h("a", { class: "race-row", href: raceHref(r.contest_key) },
     h("div", { class: "where" }, raceTitle(r), h("small", {}, officeLabel(r))),
     h("div", {}, body, h("div", { style: { fontSize: "12px", color: "var(--muted)" } },
       r.pct_reporting != null ? `${Math.round(r.pct_reporting)}% reporting · ${fmtCompact.format(total)} votes` : total ? `${fmtCompact.format(total)} votes` : "")),
@@ -342,7 +364,7 @@ function raceRow(r) {
 // ---------- views ----------
 async function viewOverview() {
   const [summary, senate, governor, house] = await Promise.all([
-    getJSON("/live/summary"), getJSON("/live/races?office=senate"), getJSON("/live/races?office=governor"), getJSON("/live/races?office=house"),
+    api.summary(), api.races("senate"), api.races("governor"), api.races("house"),
   ]);
   setMode(summary.data_mode, summary.last_projection_at);
   const feeds = summary.feeds.length
@@ -368,7 +390,7 @@ async function viewOverview() {
 }
 
 async function viewOffice(office) {
-  const data = await getJSON(`/live/races?office=${office}`);
+  const data = await api.races(office);
   setMode(data.data_mode, null);
   const states = [...new Set(data.races.map((r) => r.state))].sort();
   const q = h("input", { type: "search", placeholder: "Search race or candidate", "aria-label": "Search" });
@@ -384,8 +406,8 @@ async function viewOffice(office) {
     tbody.replaceChildren(...rows.map((r) => {
       const [a, b] = (r.candidates || []).filter((c) => c.label);
       const margin = a && b ? (a.votes - b.votes) : null;
-      return h("tr", { onclick: () => (location.hash = `#/race/${encodeURIComponent(r.contest_key)}`) },
-        h("td", {}, h("a", { href: `#/race/${encodeURIComponent(r.contest_key)}` }, raceTitle(r)), " ", h("span", { style: { color: "var(--muted)", fontSize: "12px" } }, officeLabel(r))),
+      return h("tr", { onclick: () => (location.hash = raceHref(r.contest_key)) },
+        h("td", {}, h("a", { href: raceHref(r.contest_key) }, raceTitle(r)), " ", h("span", { style: { color: "var(--muted)", fontSize: "12px" } }, officeLabel(r))),
         h("td", {}, a ? h("span", { class: "name", style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, partyTag(a.party), a.label)
           : r.leader_party ? h("span", {}, partyTag(r.leader_party), " favored") : "—"),
         h("td", { class: "r num" }, r.leader_party ? `${PARTY_LETTER[r.leader_party]} ${probText(r.leader_prob)}` : "—"),
@@ -425,7 +447,7 @@ function candidateCard(c, r, maxShare) {
 }
 
 async function viewRace(key) {
-  const d = await getJSON(`/live/races/${encodeURIComponent(key)}`);
+  const d = await api.race(key);
   setMode(d.data_mode, d.race.computed_at);
   const r = d.race;
   const cands = (r.candidates || []).filter((c) => c.label).sort((a, b) => (b.votes - a.votes) || (b.win_prob - a.win_prob));
@@ -433,7 +455,7 @@ async function viewRace(key) {
   const head = h("div", { class: "race-head" },
     h("div", {}, h("h1", {}, `${STATE_NAMES[r.state] || r.state} ${officeLabel(r)}${r.office === "house" ? ` · ${raceTitle(r)}` : ""}`),
       h("div", { class: "meta" }, statusChip(r), h("span", {}, `Certification: ${r.certification_status.replace("_", " ")}`), h("span", { class: "num" }, `Updated ${timeText(r.computed_at)}`))),
-    h("a", { href: "#/", class: "icon-btn", style: { textDecoration: "none" } }, "← Overview"));
+    h("a", { href: "#overview", class: "icon-btn", style: { textDecoration: "none" } }, "← Overview"));
 
   const exp = r.expected_total || 0;
   const reporting = h("section", { class: "card" }, h("h2", {}, "Votes counted"),
@@ -487,20 +509,31 @@ async function viewRace(key) {
   ];
 }
 
+// ---------- snapshot mode ----------
+function snapshotBar() {
+  const group = h("div", { class: "seg-control", role: "group", "aria-label": "Dataset" },
+    Object.entries(DATASETS).map(([k, label]) => h("button", { type: "button", "aria-pressed": String(k === dataset),
+      onclick: () => { dataset = k; try { localStorage.setItem("dataset", k); } catch { /* storage unavailable */ } render(); } }, label)));
+  return h("div", { class: "snapshot-bar" },
+    h("span", {}, "Static snapshot of the dashboard. Live updates need the server (", h("code", {}, "python -m scripts.run_live"), ")."), group);
+}
+
 // ---------- router + live updates ----------
 let rendering = false, pending = false;
 async function render() {
   if (rendering) { pending = true; return; }
   rendering = true;
   const route = location.hash.replace(/^#\/?/, "");
-  const [name, ...rest] = route.split("/");
+  const isRace = route.startsWith("race-");
+  const name = isRace ? "race" : route;
   document.querySelectorAll(".tabs a").forEach((a) => {
-    if (a.dataset.route === (name || "overview")) a.setAttribute("aria-current", "page");
+    if (a.dataset.route === (["senate", "house", "governor"].includes(name) ? name : isRace ? "" : "overview")) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
   try {
-    const nodes = name === "race" ? await viewRace(decodeURIComponent(rest.join("/")))
+    const nodes = isRace ? await viewRace(route.slice(5))
       : ["senate", "house", "governor"].includes(name) ? await viewOffice(name) : await viewOverview();
+    if (STATIC) nodes.unshift(snapshotBar());
     const y = window.scrollY;
     app.replaceChildren(...nodes.filter(Boolean));
     window.scrollTo(0, y);
@@ -515,6 +548,7 @@ async function render() {
 let debounce;
 function scheduleRefresh() { clearTimeout(debounce); debounce = setTimeout(render, 800); }
 function connectStream() {
+  if (STATIC) return; // a snapshot has no server to stream from
   if (!("EventSource" in window)) { setInterval(render, 30000); return; }
   const es = new EventSource("/live/stream");
   let first = true;
@@ -524,6 +558,7 @@ function connectStream() {
 
 // theme toggle: OS default, viewer override wins both ways
 const themeBtn = document.getElementById("theme");
+if (STATIC) themeBtn.hidden = true; // the hosting viewer controls the theme
 const savedTheme = (() => { try { return localStorage.getItem("theme"); } catch { return null; } })();
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 themeBtn.addEventListener("click", () => {

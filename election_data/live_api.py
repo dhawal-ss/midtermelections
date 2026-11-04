@@ -128,6 +128,9 @@ def races(office: str | None = Query(None, pattern="^(senate|house|governor)$"),
 @router.get("/live/races/{contest_key}")
 def race_detail(contest_key: str) -> dict[str, Any]:
     latest = _q("SELECT * FROM v_latest_projections WHERE contest_key = %s", (contest_key,))
+    if not latest:  # also accept the URL slug form used by the dashboard (#race-2026-general-us-senate-ga-ii)
+        latest = _q("SELECT * FROM v_latest_projections "
+                    "WHERE lower(regexp_replace(contest_key, '[^A-Za-z0-9]+', '-', 'g')) = lower(%s)", (contest_key,))
     if not latest:
         raise HTTPException(404, "Unknown contest or no projection yet")
     race = _race_row(latest[0], top=0)
