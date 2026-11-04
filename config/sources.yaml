@@ -65,16 +65,39 @@ sources:
     source_type: api
     authority_level: third_party
     access_type: free_no_key
-    enabled: false                   # enable after filling endpoints from the v2 docs
-    # Endpoint paths and field mappings MUST be copied from the provider's
-    # current v2 reference. They are intentionally left blank, not guessed.
+    attribution: Election results data from civicAPI (https://civicapi.org) — attribution required for non-personal use
+    enabled: true
+    # Endpoints and fields taken from https://civicapi.org/api-documentation and live
+    # responses observed on 2026-11-04.
     endpoints:
-      results: null
-      race_calls: null
-      polls: null
+      results: race/search          # paged with limit/offset; one record per race
+      race_detail: race/{race_id}   # per-race detail (county breakdowns when has_breakdown)
+      race_history: race/{race_id}/history/
+      status: status
+      polls: null                   # not identified in the v2 docs yet
+    query:
+      results: {startDate: "2026-11-03", endDate: "2026-11-03", country: US}
+    page_size: 100
     field_maps:
-      results: {}                    # e.g. {state: "state", office: "office", ...}
+      results:
+        records_path: races
+        race_id: id
+        state: province
+        office: type
+        district: district
+        percent_reporting: percent_reporting
+        candidates_path: candidates
+        choice: name
+        votes: votes
+        percent: percent
+        winner_flag: winner
+        caller: civicAPI
       polls: {}
+    # civicAPI race 'type' -> office modeled in this project. Only labels seen in live
+    # responses are listed; add Senate/House labels once observed (unmapped types are
+    # logged on each run).
+    office_types:
+      Governor: GOVERNOR
 
   census:
     name: US Census Bureau API
@@ -280,7 +303,7 @@ states:
     official_election_url: https://dos.fl.gov/elections/
     results_url: https://results.elections.myflorida.com/
     candidates_url: null
-    voter_lookup_url: https://registration.elections.myflorida.com/CheckVoterStatus
+    voter_lookup_url: https://registration.dos.fl.gov/CheckVoterStatus
     results_adapter: null
     adapter_status: not_implemented
   - code: GA
@@ -359,7 +382,7 @@ states:
   - code: LA
     name: Louisiana
     office: Louisiana Secretary of State
-    official_election_url: https://www.sos.la.gov/ElectionsAndVoting/
+    official_election_url: https://www.sos.la.gov/elections-voting
     results_url: https://voterportal.sos.la.gov/graphical
     candidates_url: null
     voter_lookup_url: https://voterportal.sos.la.gov/

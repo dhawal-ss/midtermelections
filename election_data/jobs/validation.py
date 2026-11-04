@@ -259,7 +259,8 @@ def check_stale_sources(conn: psycopg.Connection) -> list[dict[str, Any]]:
         else:
             continue
         row = conn.execute(
-            "SELECT MAX(finished_at) AS last_ok FROM ingestion_runs WHERE job_name = %s AND status = 'succeeded'",
+            "SELECT MAX(finished_at) AS last_ok FROM ingestion_runs WHERE job_name = %s "
+            "AND status IN ('succeeded', 'partial')",
             (job,),
         ).fetchone()
         last_ok = row["last_ok"] if row else None
@@ -281,8 +282,21 @@ def check_missing_provenance(conn: psycopg.Connection) -> dict[str, int]:
     return {name: conn.execute(sql).fetchone()["n"] for name, sql in queries.items()}
 
 
+def close_orphaned_runs(conn: psycopg.Connection, older_than_hours: int = 6) -> int:
+    """Mark runs left 'running' by a killed process as failed (data committed so far is kept)."""
+    rows = conn.execute(
+        """UPDATE ingestion_runs SET status = 'failed', finished_at = NOW(),
+                  error_message = COALESCE(error_message, 'orphaned: process ended without closing the run')
+           WHERE status = 'running' AND started_at < NOW() - make_interval(hours => %s)
+           RETURNING id""",
+        (older_than_hours,),
+    ).fetchall()
+    return len(rows)
+
+
 def run_verification(conn: psycopg.Connection) -> dict[str, Any]:
     summary = {
+        "orphaned_runs_closed": close_orphaned_runs(conn),
         "reference_coverage": check_reference_coverage(conn),
         "certification_violations": check_certification_integrity(conn),
         "county_total_mismatches": check_result_totals(conn),

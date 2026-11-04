@@ -7,6 +7,10 @@ from election_data import config
 from election_data.http import HttpClient, build_url, redact_url
 
 
+class CensusKeyError(RuntimeError):
+    pass
+
+
 class CensusClient:
     def __init__(self, api_key: str | None = None, http: HttpClient | None = None, base_url: str | None = None):
         self.api_key = api_key or config.secret("CENSUS_API_KEY")
@@ -23,7 +27,14 @@ class CensusClient:
         public = redact_url(build_url(url, params))
         if self.api_key:
             params["key"] = self.api_key
-        table = self.http.get_json(url, params=params)
+        resp = self.http.get(url, params=params, allow_redirects=False)
+        location = resp.headers.get("Location", "")
+        if resp.is_redirect and ("invalid_key" in location or "missing_key" in location):
+            raise CensusKeyError(
+                "Census API rejected the key (" + location.rsplit("/", 1)[-1] + "). New keys must be activated "
+                "from the signup email and can take several minutes to work on every Census server."
+            )
+        table = resp.json()
         if not table or not isinstance(table, list):
             raise ValueError(f"Unexpected Census response for {public}")
         header, *rows = table

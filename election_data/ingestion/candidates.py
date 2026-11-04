@@ -99,9 +99,12 @@ def upsert_fec_candidate(conn: psycopg.Connection, run: IngestionRun, record: di
     if office == "H":
         district = (record.get("district") or "00").zfill(2)
         if district not in reference.house_district_numbers(state):
+            # Usually a paper filing naming a nonexistent district. Keep the candidate and the
+            # discrepancy, but do not invent a contest for a seat that does not exist.
             record_discrepancy(conn, "candidates", candidate_id, "district", "district_not_in_apportionment",
                                {"openfec": f"{state}-{district}",
                                 "project_reference": reference.house_district_numbers(state)})
+            return candidate_id
         office_id = house_office(conn, state, district)
         key = reference.contest_key(year, "general", reference.house_office_code(state, district))
         stage, special = "general", False
@@ -110,6 +113,7 @@ def upsert_fec_candidate(conn: psycopg.Connection, run: IngestionRun, record: di
         if reference.senate_seat_class(state) is None:
             record_discrepancy(conn, "candidates", candidate_id, "state", "senate_seat_not_up_in_2026",
                                {"openfec": state, "project_reference": "no 2026 Senate contest"})
+            return candidate_id
         office_id = senate_office(conn, state)
         stage = "special_general" if special else "general"
         key = reference.contest_key(year, stage, reference.senate_office_code(state))
@@ -187,6 +191,8 @@ def ingest_election_org(conn: psycopg.Connection, client: ElectionOrgClient | No
                 if "candidates" in name:
                     with conn.transaction():
                         _crossref_election_org_candidate(conn, run, row, fec_col, raw.id)
+            if name.startswith("federal_contests"):
+                _crossref_election_org_contests(conn, download.frame)
             conn.commit()
     return run
 
@@ -223,3 +229,52 @@ def _crossref_election_org_candidate(conn: psycopg.Connection, run: IngestionRun
         record_verification(conn, "candidate_identity_crosscheck", "passed",
                             {"matched_on": "fec_candidate_id", "sources": ["openfec", "election_org"]},
                             source_record_id=raw_id, entity_table="candidates", entity_id=candidate_id)
+
+
+def _crossref_election_org_contests(conn: psycopg.Connection, frame) -> dict[str, int]:
+    """Compare Election.org's federal contest list with the seeded 2026 seat map.
+
+    Matching contests become 'corroborated'; contests on only one side become discrepancies.
+    Territorial delegate seats are outside the 50-states-plus-DC scope and are ignored.
+    """
+    needed = {"office_code", "state", "district"}
+    if not needed <= set(frame.columns):
+        log.warning("Election.org contests file lacks %s; skipping contest cross-check", needed - set(frame.columns))
+        return {}
+    year = config.ELECTION_YEAR
+    seen: set[str] = set()
+    stats = {"matched": 0, "only_election_org": 0, "only_reference": 0}
+    for row in iter_records(frame):
+        state, code = (row.get("state") or "").upper(), (row.get("office_code") or "").upper()
+        if state not in reference.STATES or code not in ("H", "S"):
+            continue
+        if code == "H":
+            key = reference.contest_key(year, "general",
+                                        reference.house_office_code(state, (row.get("district") or "00").zfill(2)))
+        else:
+            special = (row.get("election_kind") or "").lower() == "special"
+            key = reference.contest_key(year, "special_general" if special else "general",
+                                        reference.senate_office_code(state))
+        seen.add(key)
+        hit = conn.execute(
+            "UPDATE contests SET verification_status = 'corroborated' WHERE contest_key = %s "
+            "AND verification_status = 'unverified' RETURNING id", (key,)).fetchone()
+        exists = hit or conn.execute("SELECT 1 FROM contests WHERE contest_key = %s", (key,)).fetchone()
+        if exists:
+            stats["matched"] += 1
+        else:
+            stats["only_election_org"] += 1
+            record_discrepancy(conn, "contests", None, key, "contest_missing_from_reference",
+                               {"election_org": row.get("title"), "project_reference": None})
+    for r in conn.execute(
+        """SELECT c.id, c.contest_key FROM contests c JOIN offices o ON o.id = c.office_id
+           WHERE c.contest_key LIKE %s AND o.office_code LIKE 'US-%%'""", (f"{year}:%",)).fetchall():
+        if r["contest_key"] not in seen:
+            stats["only_reference"] += 1
+            record_discrepancy(conn, "contests", r["id"], "contest_key", "contest_missing_from_election_org",
+                               {"project_reference": r["contest_key"], "election_org": None})
+    record_verification(conn, "federal_contest_map_crosscheck",
+                        "passed" if not stats["only_election_org"] and not stats["only_reference"] else "warning",
+                        stats)
+    log.info("Election.org contest cross-check: %s", stats)
+    return stats

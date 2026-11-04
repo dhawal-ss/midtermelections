@@ -109,7 +109,7 @@ class FECClient:
     def get_candidate_totals(self, cycle: int = 2026, office: str | None = None, **extra: Any):
         """Per-candidate financial totals for the cycle."""
         params = {"cycle": cycle, "office": office, "election_full": "true",
-                  "sort": "-receipts", **extra}
+                  "election_year": cycle, "sort": "-receipts", **extra}
         return self.paginate("candidates/totals", params)
 
     def get_schedule_a(self, committee_id: str, two_year_transaction_period: int = 2026,

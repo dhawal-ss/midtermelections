@@ -95,3 +95,21 @@ def ingest_mit_election_lab(conn: psycopg.Connection, client: MITElectionLabClie
                 conn.rollback()
                 run.record_failure(f"{name}: {exc}")
     return run
+
+
+def ingest_mit_file(conn: psycopg.Connection, dataset: str, path: str, years: list[int] | None = None,
+                    dataset_version: str = "manual") -> IngestionRun:
+    """Load an MIT Election Lab file downloaded by hand (e.g. when Dataverse requires a guestbook)."""
+    from pathlib import Path
+
+    spec = config.source_config("mit_election_lab")["datasets"][dataset]
+    year_set = set(years or config.load_sources()["election"]["historical_cycles"])
+    file_path = Path(path)
+    content = file_path.read_bytes()
+    with IngestionRun(conn, "mit_election_lab", "historical_results",
+                      {"dataset": dataset, "file": file_path.name, "years": sorted(year_set)}) as run:
+        run.archive_file(f"file://{file_path.name}", content, file_path.name)
+        frame = read_table(content, sep="\t" if file_path.suffix == ".tab" else ",")
+        record_schema_fingerprint(conn, run.source_id, dataset, frame.columns)
+        load_mit_frame(conn, run, frame, spec["office"], dataset_version, year_set)
+    return run

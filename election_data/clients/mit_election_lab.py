@@ -15,6 +15,10 @@ from election_data.http import HttpClient
 log = logging.getLogger(__name__)
 
 
+class GuestbookRequired(RuntimeError):
+    pass
+
+
 @dataclass
 class DataverseFile:
     file_id: int
@@ -60,4 +64,16 @@ class MITElectionLabClient:
         return f"{self.base_url}/api/access/datafile/{file_id}?format=original"
 
     def download(self, file: DataverseFile) -> bytes:
-        return self.http.get(self.file_url(file.file_id)).content
+        import requests
+
+        try:
+            return self.http.get(self.file_url(file.file_id)).content
+        except requests.HTTPError as exc:
+            body = exc.response.text if exc.response is not None else ""
+            if "Guestbook" in body:
+                raise GuestbookRequired(
+                    f"Dataverse requires a guestbook form before downloading {file.original_filename or file.filename}. "
+                    "Download it in a browser from the dataset page, then load it with: python -m scripts.ingest_all "
+                    "--only historical_file --dataset <us_house|us_senate|us_president> --file <path>"
+                ) from exc
+            raise

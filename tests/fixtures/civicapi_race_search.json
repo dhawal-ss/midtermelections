@@ -1,0 +1,127 @@
+{
+ "count": 3,
+ "offset": 0,
+ "limit": 100,
+ "races": [
+  {
+   "id": 87088,
+   "type": "Governor",
+   "country": "US",
+   "province": "GA",
+   "district": null,
+   "municipality": null,
+   "election_name": "Georgia Governor",
+   "election_type": "Statewide",
+   "election_date": "2026-11-03T05:00:00.000Z",
+   "has_breakdown": true,
+   "has_map": true,
+   "percent_reporting": 57,
+   "candidates": [
+    {
+     "name": "Keisha Lance Bottoms",
+     "candidate_id": 220203,
+     "party": "Democratic",
+     "color": "#4874a3",
+     "votes": 1544762,
+     "percent": 58.08,
+     "winner": false
+    },
+    {
+     "name": "Rick Jackson",
+     "candidate_id": 220202,
+     "party": "Republican",
+     "color": "#c6606b",
+     "votes": 1115120,
+     "percent": 41.92,
+     "winner": false
+    }
+   ]
+  },
+  {
+   "id": 87255,
+   "type": "Governor",
+   "country": "US",
+   "province": "NE",
+   "district": null,
+   "municipality": null,
+   "election_name": "Nebraska Governor",
+   "election_type": "Statewide",
+   "election_date": "2026-11-03T05:00:00.000Z",
+   "has_breakdown": true,
+   "has_map": true,
+   "percent_reporting": 0,
+   "candidates": [
+    {
+     "name": "Jim Pillen",
+     "candidate_id": 220707,
+     "party": "Republican",
+     "color": "#c6606b",
+     "votes": 0,
+     "percent": 0,
+     "winner": false
+    },
+    {
+     "name": "Lynne Walz",
+     "candidate_id": 220708,
+     "party": "Democratic",
+     "color": "#4874a3",
+     "votes": 0,
+     "percent": 0,
+     "winner": false
+    },
+    {
+     "name": "Rick Beard",
+     "candidate_id": 220709,
+     "party": "Legal Marijuana Now",
+     "color": "#09ad00",
+     "votes": 0,
+     "percent": 0,
+     "winner": false
+    },
+    {
+     "name": "Brett Lindstrom",
+     "candidate_id": 220710,
+     "party": "America First",
+     "color": "#8B0000",
+     "votes": 0,
+     "percent": 0,
+     "winner": false
+    }
+   ]
+  },
+  {
+   "id": 179835,
+   "type": "Referendum",
+   "country": "US",
+   "province": "AL",
+   "district": null,
+   "municipality": null,
+   "election_name": "Alabama Amendment 2 - School District Consolidation Process",
+   "election_type": "Statewide",
+   "election_date": "2026-11-03T05:00:00.000Z",
+   "has_breakdown": true,
+   "has_map": true,
+   "percent_reporting": 0,
+   "candidates": [
+    {
+     "name": "Yes",
+     "candidate_id": 22719365,
+     "party": "Nonpartisan",
+     "color": "#63c660",
+     "votes": 2505,
+     "percent": 61.78,
+     "winner": false
+    },
+    {
+     "name": "No",
+     "candidate_id": 22719366,
+     "party": "Nonpartisan",
+     "color": "#c6606b",
+     "votes": 1550,
+     "percent": 38.22,
+     "winner": false
+    }
+   ]
+  }
+ ]
+}

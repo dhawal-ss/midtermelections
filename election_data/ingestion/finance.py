@@ -98,7 +98,9 @@ def ingest_candidate_totals(conn: psycopg.Connection, cycle: int | None = None,
                 raw = run.store_raw("fec_candidate_totals", record, record.get("candidate_id"), url)
                 cand = _candidate_id_for_fec(conn, record.get("candidate_id"))
                 if cand is None:
-                    run.record_failure(f"totals for unknown candidate {record.get('candidate_id')}")
+                    # Raised money in this cycle but is not a 2026 candidate in our candidate table
+                    # (e.g. filed after the last candidate refresh). Kept as raw evidence only.
+                    log.info("totals for candidate not in candidates table: %s", record.get("candidate_id"))
                     continue
                 try:
                     with conn.transaction():
@@ -138,8 +140,11 @@ def _principal_committees(conn: psycopg.Connection, cycle: int, limit: int | Non
         SELECT cm.id, cm.external_id, cc.candidate_id
         FROM campaign_committees cm
         JOIN candidate_committees cc ON cc.committee_id = cm.id AND cc.cycle = %s
+        LEFT JOIN LATERAL (
+            SELECT MAX(fs.receipts) AS receipts FROM financial_summaries fs WHERE fs.candidate_id = cc.candidate_id
+        ) f ON TRUE
         WHERE cm.designation = 'P'
-        ORDER BY cm.external_id
+        ORDER BY f.receipts DESC NULLS LAST, cm.external_id   -- largest campaigns first when a limit is set
     """
     if limit:
         sql += f" LIMIT {int(limit)}"

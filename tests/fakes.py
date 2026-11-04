@@ -14,6 +14,10 @@ FEC_CANDIDATES = [
     {"candidate_id": "S6OH00300", "name": "BUCKEYE, PAT", "party": "REP", "party_full": "REPUBLICAN PARTY",
      "office": "S", "state": "OH", "district": "00", "incumbent_challenge": "I", "candidate_status": "C",
      "first_file_date": "2025-02-01", "election_years": [2026]},
+    {"candidate_id": "S6UT00999", "name": "PAPER, FILER", "party": "IND", "office": "S", "state": "UT",
+     "district": "00", "candidate_status": "N", "election_years": [2026]},   # UT has no 2026 Senate race
+    {"candidate_id": "H6SC86001", "name": "WRONG, DISTRICT", "party": "IND", "office": "H", "state": "SC",
+     "district": "86", "candidate_status": "N", "election_years": [2026]},   # SC has 7 districts
     {"candidate_id": "BAD", "name": "", "office": "X"},  # malformed: must be rejected, not crash
 ]
 

@@ -6,6 +6,7 @@
     python -m scripts.ingest_all --only state_results --state NC --file nc.csv --mapping nc_mapping.yaml
     python -m scripts.ingest_all --only polls_csv --file polls.csv --mapping polls_mapping.yaml
     python -m scripts.ingest_all --only voter_stats --file eavs_2024.csv --mapping eavs_mapping.yaml
+    python -m scripts.ingest_all --only historical_file --dataset us_house --file 1976-2024-house.tab
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from election_data.jobs.registry import JOBS
 
 DEFAULT = ["fec_election_dates", "fec_candidates", "fec_committees", "fec_finance_totals",
            "election_org", "census_demographics", "historical_results", "validation", "daily_report"]
-FILE_JOBS = {"state_results", "polls_csv", "voter_stats"}
+FILE_JOBS = {"state_results", "polls_csv", "voter_stats", "historical_file"}
 
 
 def _load_mapping(path: str | None) -> dict:
@@ -36,7 +37,12 @@ def run_file_job(name: str, args: argparse.Namespace) -> None:
     from election_data.ingestion.supplemental import ingest_polls_csv, ingest_voter_statistics_csv
 
     with database.connect() as conn:
-        if name == "state_results":
+        if name == "historical_file":
+            from election_data.ingestion.historical import ingest_mit_file
+            if not args.dataset:
+                sys.exit("--dataset is required for historical_file (us_house, us_senate, us_president)")
+            run = ingest_mit_file(conn, args.dataset, args.file)
+        elif name == "state_results":
             if not args.state:
                 sys.exit("--state is required for state_results")
             run = ingest_state_results(conn, args.state.upper(), args.file, args.mapping)
@@ -56,6 +62,7 @@ def main() -> None:
     parser.add_argument("--state", help="two-letter state code (filters FEC candidates; required for state_results)")
     parser.add_argument("--file", help="input file for file-based jobs")
     parser.add_argument("--mapping", help="YAML column mapping for file-based jobs")
+    parser.add_argument("--dataset", help="MIT dataset key for historical_file (us_house, us_senate, us_president)")
     parser.add_argument("--committee-limit", type=int, help="cap committees for contributions/expenditures")
     parser.add_argument("--max-pages", type=int, help="cap API pages per committee for schedules")
     parser.add_argument("--continue-on-error", action="store_true", default=True)

@@ -82,7 +82,12 @@ def test_fec_candidate_ingestion_and_idempotency(conn):
     fake = FakeFEC()
     run = ingest_fec_candidates(conn, client=fake)
     assert run.failed == 1  # the malformed record
-    assert one(conn, "SELECT COUNT(*) FROM candidates") == 4
+    assert one(conn, "SELECT COUNT(*) FROM candidates") == 6
+    # paper filings for seats that do not exist keep identity + a discrepancy, but no phantom contest
+    assert one(conn, "SELECT COUNT(*) FROM contests WHERE contest_key LIKE '%%UNKNOWN%%' "
+                     "OR contest_key LIKE '%%SC-86%%'") == 0
+    assert one(conn, "SELECT COUNT(*) FROM data_discrepancies WHERE discrepancy_type IN "
+                     "('senate_seat_not_up_in_2026', 'district_not_in_apportionment')") == 2
     # election_year filter is always requested so 2028/2030 filers are excluded
     assert all(kw["election_year"] == 2026 for _, kw in fake.calls)
 
@@ -97,9 +102,9 @@ def test_fec_candidate_ingestion_and_idempotency(conn):
                      "WHERE k.contest_key='2026:special_general:US-SENATE-OH-III'") == 1
 
     ingest_fec_candidates(conn, client=FakeFEC())
-    assert one(conn, "SELECT COUNT(*) FROM candidates") == 4
+    assert one(conn, "SELECT COUNT(*) FROM candidates") == 6
     assert one(conn, "SELECT COUNT(*) FROM contest_candidates") == 4
-    assert one(conn, "SELECT COUNT(*) FROM raw_records WHERE record_type='fec_candidate'") == 5
+    assert one(conn, "SELECT COUNT(*) FROM raw_records WHERE record_type='fec_candidate'") == 7
 
 
 def test_ballot_qualification_requires_evidence(conn):
@@ -114,7 +119,8 @@ def test_finance_pipeline(conn):
     ingest_fec_candidates(conn, client=fake)
     ingest_committees(conn, client=fake)
     totals = ingest_candidate_totals(conn, client=fake)
-    assert totals.failed == 1  # totals for a candidate we do not know
+    assert totals.failed == 0  # out-of-scope candidates are kept as raw evidence, not failures
+    assert totals.received == 2
     run = ingest_contributions(conn, client=fake)
     assert run.failed == 0
     row = conn.execute("SELECT amount, contribution_date::text AS d, file_number, image_number, candidate_id "
@@ -272,6 +278,45 @@ def test_report_and_verification(conn):
     assert summary["certification_violations"] == 0
     assert summary["reference_coverage"]["house_contests"] == 435
     report, path = write_report(conn)
-    assert report["states_and_dc"] == 51 and report["candidates"] == 4
+    assert report["states_and_dc"] == 51 and report["candidates"] == 6
     assert report["state_adapters_implemented"] == 0
     assert len(report["states_without_adapter"]) == 51
+
+
+# -- civicAPI (recorded real response, 2026-11-04) ----------------------------
+def test_civicapi_results_from_recorded_response(conn):
+    import copy
+    import json
+
+    from election_data.clients.civicapi import CivicAPIClient
+    from election_data.ingestion.supplemental import ingest_civicapi_results
+
+    data = json.loads((PROJECT_ROOT / "tests" / "fixtures" / "civicapi_race_search.json").read_text())
+    called = copy.deepcopy(data)
+    called["races"][1]["candidates"][0]["winner"] = True   # pretend NE governor was called
+
+    class FakeCivic(CivicAPIClient):
+        def __init__(self, payload):
+            super().__init__(http=object())
+            self.payload = payload
+
+        def fetch(self, endpoint, params=None):
+            return self.payload, f"https://civicapi.org/api/v2/{endpoint}"
+
+    # official state data first, then civicAPI: civicAPI must not override it
+    with IngestionRun(conn, "state:GA", "r") as run:
+        record_results(conn, run, [obs(contest_key="2026:general:GOV-GA", choice_label="Keisha Lance Bottoms",
+                                       votes=1)])
+    ingest_civicapi_results(conn, client=FakeCivic(called))
+
+    rows = conn.execute("SELECT contest_key, choice_label, votes, display_label, source_name FROM v_results_labeled "
+                        "ORDER BY contest_key, votes DESC").fetchall()
+    assert {r["contest_key"] for r in rows} == {"2026:general:GOV-GA", "2026:general:GOV-NE"}  # referendum skipped
+    assert all(r["display_label"] == "PRELIMINARY — NOT CERTIFIED" for r in rows)
+    ga = [r for r in rows if r["choice_label"] == "Keisha Lance Bottoms"][0]
+    assert ga["votes"] == 1 and ga["source_name"].startswith("Georgia")   # official value kept
+    assert one(conn, "SELECT COUNT(*) FROM election_result_snapshots WHERE source_id = "
+                     "(SELECT id FROM data_sources WHERE source_key='civicapi')") == 6
+    assert one(conn, "SELECT COUNT(*) FROM race_calls") == 1
+    assert one(conn, "SELECT certification_status FROM contests WHERE contest_key='2026:general:GOV-NE'") == "unknown"
+    assert one(conn, "SELECT verification_status FROM contests WHERE contest_key='2026:general:GOV-NE'") == "corroborated"
