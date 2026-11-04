@@ -133,7 +133,7 @@ def test_finance_pipeline(conn):
 
 
 # -- results & certification --------------------------------------------------
-def obs(**kw):
+def obs(**kw):  # noqa: D401 - test helper
     base = dict(state_code="GA", contest_key=GA_SENATE, choice_label="Jane A. Doe", votes=1000,
                 source_url="https://results.sos.ga.gov/x.json", result_stage="preliminary")
     base.update(kw)
@@ -320,3 +320,76 @@ def test_civicapi_results_from_recorded_response(conn):
     assert one(conn, "SELECT COUNT(*) FROM race_calls") == 1
     assert one(conn, "SELECT certification_status FROM contests WHERE contest_key='2026:general:GOV-NE'") == "unknown"
     assert one(conn, "SELECT verification_status FROM contests WHERE contest_key='2026:general:GOV-NE'") == "corroborated"
+
+
+# -- live projections + API ----------------------------------------------------
+def _seed_ga_results(conn, d_votes, r_votes, pct):
+    with IngestionRun(conn, "state:GA", "r") as run:
+        record_results(conn, run, [
+            obs(choice_label="Dem Candidate", votes=d_votes, party="Democratic", expected_vote_pct=pct),
+            obs(choice_label="Rep Candidate", votes=r_votes, party="Republican", expected_vote_pct=pct),
+        ])
+
+
+def test_projection_engine_snapshots_and_chambers(conn):
+    from election_data.projections.engine import run_projections
+    from election_data.projections.model import ModelParams
+    from election_data.projections.priors import build_priors
+
+    stats = build_priors(conn)
+    assert stats["no_baseline"] == one(conn, "SELECT COUNT(*) FROM contests WHERE contest_key LIKE '2026:%%'")
+    params = ModelParams(simulations=2000)
+    s1 = run_projections(conn, params=params, seed=1)
+    assert s1.races == 507 and s1.with_results == 0 and s1.snapshots_written == 507
+    assert set(s1.chambers) == {"senate", "house"}
+    assert s1.chambers["house"]["races"] == 435          # DC delegate excluded from control
+    assert s1.chambers["senate"]["races"] == 35
+
+    s2 = run_projections(conn, params=params, seed=2)     # nothing changed
+    assert s2.snapshots_written == 0
+    assert one(conn, "SELECT COUNT(*) FROM chamber_projections") == 2   # no noise rows added
+
+    _seed_ga_results(conn, 1_200_000, 900_000, 60)
+    s3 = run_projections(conn, params=params, seed=3)
+    assert s3.with_results == 1 and s3.snapshots_written == 1
+    row = conn.execute("SELECT * FROM v_latest_projections WHERE contest_key = %s", (GA_SENATE,)).fetchone()
+    assert row["leader_party"] == "DEM" and row["votes_counted"] == 2_100_000
+    assert {c["label"] for c in row["candidates"]} == {"Dem Candidate", "Rep Candidate"}
+    assert all("majority_prob" in c for c in row["candidates"])   # GA runoff rule
+    # projections never write to results or certification
+    assert one(conn, "SELECT certification_status FROM contests WHERE contest_key=%s", (GA_SENATE,)) == "unknown"
+    with pytest.raises(psycopg.errors.RaiseException):
+        conn.execute("UPDATE projection_snapshots SET leader_party = 'REP'")
+    conn.rollback()
+
+
+def test_live_api_endpoints(conn, db_url, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from election_data.api import app
+    from election_data.projections.engine import run_projections
+    from election_data.projections.model import ModelParams
+
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    _seed_ga_results(conn, 1_200_000, 900_000, 60)
+    run_projections(conn, params=ModelParams(simulations=1000), seed=4)
+    client = TestClient(app)
+
+    summary = client.get("/live/summary").json()
+    assert summary["data_mode"] == "live" and summary["races_reporting"] == 1
+    assert set(summary["chambers"]) == {"senate", "house"}
+    assert summary["chambers"]["senate"]["total_seats"] == 100
+
+    races = client.get("/live/races", params={"office": "senate"}).json()["races"]
+    assert len(races) == 35 and all(r["office"] == "senate" for r in races)
+    assert client.get("/live/races", params={"office": "mayor"}).status_code == 422
+
+    detail = client.get(f"/live/races/{GA_SENATE}").json()
+    assert detail["race"]["leader_party"] == "DEM" and len(detail["history"]) == 1
+    assert detail["results_source_rows"][0]["result_stage"] == "preliminary"
+    assert any("not official" in n for n in detail["notes"])
+    assert client.get("/live/races/2026:general:NOPE").status_code == 404
+
+    page = client.get("/")
+    assert page.status_code == 200 and "Midterms 2026" in page.text
+    assert client.get("/static/app.js").status_code == 200

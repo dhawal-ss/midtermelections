@@ -88,6 +88,7 @@ sources:
         percent_reporting: percent_reporting
         candidates_path: candidates
         choice: name
+        party: party
         votes: votes
         percent: percent
         winner_flag: winner
@@ -169,6 +170,17 @@ sources:
     enabled: false
     notes: Commercial licence required. Race calls are projections, not certification.
 
+  simulation:
+    name: Simulated election night (synthetic test data)
+    base_url: null
+    source_type: reference
+    authority_level: third_party
+    access_type: none
+    enabled: false
+    notes: >-
+      Synthetic results produced by scripts/simulate_night.py for testing the live dashboard.
+      Only ever written to a separate demo database; candidates are generic party labels.
+
   project_reference:
     name: Project reference data
     base_url: null
@@ -179,6 +191,43 @@ sources:
     notes: >-
       Seeded constants (FIPS codes, 2020 apportionment, 2026 Senate/governor seats).
       Marked unverified until corroborated by FEC / state sources.
+
+# ---------------------------------------------------------------------
+# Live projection model (heuristic v1 — calibrate against stored snapshots)
+# Margins are DEM minus REP two-party share on a -1..1 scale (0.10 = D+10).
+# ---------------------------------------------------------------------
+model:
+  version: live-v1
+  simulations: 10000
+  seed: null                       # set an integer for reproducible runs
+  national_shift: 0.0              # expected national swing vs. baselines (+ favours DEM)
+  national_sd: 0.04                # shared national error, correlates all races in a draw
+  prior_sd:
+    house: 0.10
+    house_redistricted: 0.16       # baseline drawn on old district lines
+    house_uncontested_baseline: 0.15
+    senate: 0.12
+    governor: 0.20                 # no baseline loaded yet: deliberately wide
+  observed_weight_k: 20            # weight on counted votes = pct / (pct + k)
+  remaining_vote_sd: 0.08          # log-share noise on the composition of uncounted votes
+  turnout_sd: 0.30                 # uncertainty in expected total votes at 0% reporting
+  status_thresholds: {projected: 0.995, likely: 0.95, lean: 0.75}
+  min_pct_for_projection: 5        # never 'projected' before this much is counted
+  majority_required: [GA]          # report P(>50%) where a majority avoids a runoff
+  # States with new congressional maps for 2026: 2024 House baselines are wider here. Verify.
+  redistricted_for_2026: [CA, MO, NC, OH, TX, UT]
+
+chambers:
+  senate:
+    total_seats: 100
+    seats_needed: 51
+    tie_breaker: REP               # Vice President breaks 50-50 ties
+    # Seats NOT up in 2026, by caucus (independents counted with the caucus they join)
+    holdovers: {DEM: 34, REP: 31}
+  house:
+    total_seats: 435
+    seats_needed: 218
+    holdovers: {}
 
 # ---------------------------------------------------------------------
 # Update schedules (proposed polling intervals, not provider refresh rates)
@@ -199,6 +248,7 @@ schedules:
   validation:            {every_hours: 6}
   daily_report:          {cron: "15 6 * * *"}
   # Election window (election day through certification)
+  projections:           {every_minutes: 2,  active_from: "2026-11-03T18:00:00-05:00", active_to: "2026-12-15T00:00:00-05:00"}
   live_results:          {every_minutes: 5,  active_from: "2026-11-03T18:00:00-05:00", active_to: "2026-11-10T00:00:00-05:00"}
   certification_watch:   {every_minutes: 60, active_from: "2026-11-04T00:00:00-05:00", active_to: "2027-01-06T00:00:00-05:00"}
 

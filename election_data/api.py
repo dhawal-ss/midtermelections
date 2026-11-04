@@ -107,3 +107,12 @@ def coverage() -> dict[str, Any]:
     if not rows:
         raise HTTPException(404, "No report yet; run python -m scripts.verify_data")
     return rows[0]["metrics"]
+
+
+# Live dashboard: projections API, SSE stream and static front end
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from election_data.live_api import WEB_DIR, router as live_router  # noqa: E402
+
+app.include_router(live_router)
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

@@ -14,6 +14,7 @@ Mapping (YAML or dict) example:
       precincts_reporting: PrecinctsReporting
       precincts_total: PrecinctsTotal
       fec_candidate_id: null
+      party: Party                     # optional; used by the live projection model
     office_values:                     # map the file's office labels to supported offices
       "U.S. Senate": US SENATE
       "U.S. House": US HOUSE
@@ -73,4 +74,5 @@ class GenericCSVResultsAdapter(StateResultsAdapter):
                 precincts_reporting=_int(row.get(cols["precincts_reporting"])) if "precincts_reporting" in cols else None,
                 precincts_total=_int(row.get(cols["precincts_total"])) if "precincts_total" in cols else None,
                 source_reported_at=mapping.get("source_reported_at"),
+                party=row.get(cols["party"]) if "party" in cols else None,
             ), row

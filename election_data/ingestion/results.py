@@ -45,6 +45,7 @@ class ResultObservation:
     precincts_total: int | None = None
     expected_vote_pct: float | None = None
     source_reported_at: datetime | str | None = None
+    party: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -141,12 +142,12 @@ def record_results(conn: psycopg.Connection, run: IngestionRun, observations: It
                 """
                 INSERT INTO election_result_snapshots (contest_id, candidate_id, choice_label, reporting_unit_id,
                     votes, vote_percentage, precincts_reporting, precincts_total, expected_vote_pct, result_stage,
-                    source_id, source_record_id, source_reported_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    source_id, source_record_id, source_reported_at, party_label)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (contest_id, candidate_id, obs.choice_label, unit_id, obs.votes, obs.vote_percentage,
                  obs.precincts_reporting, obs.precincts_total, obs.expected_vote_pct, obs.result_stage,
-                 run.source_id, raw_record_id, obs.source_reported_at),
+                 run.source_id, raw_record_id, obs.source_reported_at, obs.party),
             )
             stats["snapshots"] += 1
 
@@ -175,8 +176,8 @@ def record_results(conn: psycopg.Connection, run: IngestionRun, observations: It
                 INSERT INTO election_results (contest_id, candidate_id, choice_label, reporting_unit_id, votes,
                     vote_percentage, precincts_reporting, precincts_total, expected_vote_pct, result_stage,
                     is_certified, certification_id, source_id, source_record_id, source_reported_at,
-                    verification_status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    verification_status, party_label)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (contest_id, choice_label, reporting_unit_id) DO UPDATE SET
                     candidate_id = COALESCE(EXCLUDED.candidate_id, election_results.candidate_id),
                     votes = EXCLUDED.votes, vote_percentage = EXCLUDED.vote_percentage,
@@ -185,12 +186,13 @@ def record_results(conn: psycopg.Connection, run: IngestionRun, observations: It
                     is_certified = EXCLUDED.is_certified, certification_id = EXCLUDED.certification_id,
                     source_id = EXCLUDED.source_id, source_record_id = EXCLUDED.source_record_id,
                     source_reported_at = EXCLUDED.source_reported_at,
-                    verification_status = EXCLUDED.verification_status
+                    verification_status = EXCLUDED.verification_status,
+                    party_label = COALESCE(EXCLUDED.party_label, election_results.party_label)
                 """,
                 (contest_id, candidate_id, obs.choice_label, unit_id, obs.votes, obs.vote_percentage,
                  obs.precincts_reporting, obs.precincts_total, obs.expected_vote_pct, obs.result_stage,
                  certified, cert["id"] if certified else None, run.source_id, raw_record_id,
-                 obs.source_reported_at, verification),
+                 obs.source_reported_at, verification, obs.party),
             )
             stats["current_updated"] += 1
     return stats

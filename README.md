@@ -34,6 +34,7 @@ This section lists what works and what doesn't, so nobody mistakes the coverage 
 | Polls (CSV + civicAPI), EAC/state aggregate voter statistics (CSV) | ✅ implemented, mapping-driven |
 | Verification jobs, discrepancy tracking, daily coverage report | ✅ implemented, tested |
 | APScheduler runner, REST API, CSV export, Docker | ✅ implemented |
+| Live dashboard, projection model, chamber simulation, SSE push, election-night simulator | ✅ implemented, tested (see *Live dashboard* below) |
 | civicAPI live results | ⚠️ configured from the live schema (`race/search`) and tested on a recorded response; the service returned HTTP 502 throughout 2026-11-04 so no live load yet. Only `Governor` is mapped: add Senate/House type labels once observed |
 | State-specific live results adapters | ❌ **0 of 51 implemented**. Every state is `adapter_status: not_implemented`. Load official exports with the generic CSV adapter in the meantime |
 | State ballot-qualification feeds | ❌ not implemented. `ballot_status` stays `unknown` until a state source provides evidence |
@@ -42,6 +43,54 @@ This section lists what works and what doesn't, so nobody mistakes the coverage 
 
 **Finance volume.** Itemized contributions (Schedule A) run to tens of millions of rows. The first live run loaded 9,566 contributions for the 24 largest campaigns and 4,000 independent expenditures (Schedule E has about 70,800 for 2026). Downloads go oldest-first and later runs resume from the newest stored date, so scheduled runs walk forward to the present. Use `--committee-limit` / `--max-pages` to control volume. OpenFEC returns `X-RateLimit-Limit: 60` (per minute); the client stays under 1,000/hour.
 | Live verification of the state URLs in `config/sources.yaml` | ✅ **checked 2026-11-04**: 37/51 jurisdictions all-OK; 49/51 reachable (the rest of the failures are 403 bot-blocking). Open: Alaska (TLS chain fails verification), Michigan results (connection reset). LA and FL URLs corrected |
+
+---
+
+## Live dashboard, projections and probabilities
+
+```bash
+python -m scripts.run_live                      # pull live results + recompute projections every 60 s
+uvicorn election_data.api:app --port 8000       # dashboard at http://localhost:8000
+```
+
+(`docker compose up -d` runs both as the `live` and `api` services.)
+
+The dashboard is an original design, served by the API with no build step. It has:
+- **Overview:** Senate and House control odds, a seat bar (projected / likely / lean / toss-up with the majority line), the simulated seat distribution, a Senate/Governor tile map shaded by leader and confidence, and races to watch.
+- **Race pages:** votes counted, each candidate's projected final share with an 80% range, win probability (plus the chance of a majority where a runoff threshold applies, e.g. Georgia), and charts of win probability and vote share over time.
+- **Live push:** `/live/stream` (Server-Sent Events) tells open pages to refresh as soon as new results or projections land.
+- Light/dark themes, phone layout, and table views behind every chart.
+
+### The model (`election_data/projections/`, version `live-v1`)
+
+Per race, per Monte Carlo draw (10,000 by default):
+
+1. **Votes left to count:** counted ÷ the source's % reporting, with uncertainty that shrinks as counting progresses. Before any results, the 2022 midterm turnout is used.
+2. **Baseline:** the last result for the seat (2024 House by district, 2020 Senate for Class II seats, 2022 for the FL/OH specials), plus a configurable national shift, a **national shock shared by every race in the draw** so errors correlate, and race-level noise. Baselines are wider where 2026 maps were redrawn. Governor races have no baseline yet (wide 50/50).
+3. **How the uncounted vote breaks:** a blend of the counted shares and the baseline. The weight on counted votes is pct ÷ (pct + 20), so early returns are not trusted as representative. A log-share noise term is added.
+4. **Winner** = most final votes (top-k for multi-seat contests). Senate and House control come from summing every race's draws plus seats not up (Senate: 34 D / 31 R holdovers; a 50–50 tie goes to the Vice President's party).
+
+Status ladder: `prior_only` → `tossup` → `lean` (≥75%) → `likely` (≥95%) → `projected` (≥99.5%, with at least 5% counted) → `final_count` (certified). **A "projection" is a model statement, not an official result or a media race call.** Projections are stored in `projection_snapshots` (append-only, with every input), separate from results and certification.
+
+All parameters live in `config/sources.yaml → model` and `chambers`.
+
+### Try it without a live feed (simulated night)
+
+```bash
+createdb elections_demo
+python -m scripts.simulate_night --database-url postgresql://election:change_me@localhost:5432/elections_demo
+DATABASE_URL=postgresql://election:change_me@localhost:5432/elections_demo uvicorn election_data.api:app --port 8000
+```
+
+The simulator writes into a separate database only: it refuses any database whose name lacks `demo`/`sim`. It uses generic party placeholders, never real candidates, and the dashboard shows a **SIMULATED DATA** banner. States start counting at their poll-closing times, and some count mail ballots first while others count election-day votes first, so early leads can flip. At the end it scores the model against the hidden outcome. Across three seeds (about 1,450 races projected) it made **0 wrong projections**.
+
+### Limits of `live-v1` (read before trusting a number)
+
+- **Uncalibrated on real nights.** The simulator check is a sanity test against synthetic counting patterns, not calibration. Backtest against real snapshot histories (they are all stored) before relying on the probabilities.
+- **Race-level only.** It does not yet use county-level results to estimate where the outstanding vote is, which serious live models do. County rows are stored when a source provides them.
+- **Before results, odds are "same as last time".** `national_shift` defaults to 0; set it deliberately.
+- **Depends on a live feed.** civicAPI returned HTTP 502 throughout 2026-11-04, and only its `Governor` race type is mapped so far. Official state exports can be loaded with the generic CSV adapter (include a `party` column).
+- **Specific rules not modeled:** ranked-choice tabulation (AK, ME), Louisiana's runoff format, and fusion party lines (NY) need specific handling.
 
 ---
 

@@ -95,6 +95,17 @@ def polls(**kw):
     return _with_conn(ingest_civicapi_polls, **kw)
 
 
+def projections(**kw):
+    from election_data.projections.engine import run_projections
+    from election_data.projections.priors import build_priors
+
+    def _run(conn):
+        if not conn.execute("SELECT EXISTS (SELECT 1 FROM race_priors) AS e").fetchone()["e"]:
+            build_priors(conn)
+        return run_projections(conn)
+    return _with_conn(_run)
+
+
 def validation(**kw):
     from election_data.jobs.validation import run_verification
     return _with_conn(run_verification)
@@ -136,6 +147,7 @@ JOBS: dict[str, Callable] = {
     "historical_results": historical_results,
     "live_results": live_results,
     "polls": polls,
+    "projections": projections,
     "validation": validation,
     "daily_report": daily_report,
     "verify_sources": verify_sources,

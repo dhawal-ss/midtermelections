@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Midterms 2026 Live</title>
+  <meta name="description" content="Live vote counts, model projections and win probabilities for the 2026 US midterm elections.">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/">Midterms 2026 <small>Live</small></a>
+      <span id="mode" class="mode" role="status"><span class="dot"></span><span id="mode-text">Connecting…</span></span>
+      <span id="updated" class="updated num" aria-live="polite"></span>
+      <nav class="tabs" aria-label="Sections">
+        <a href="#/" data-route="overview">Overview</a>
+        <a href="#/senate" data-route="senate">Senate</a>
+        <a href="#/house" data-route="house">House</a>
+        <a href="#/governor" data-route="governor">Governors</a>
+      </nav>
+      <button id="theme" class="icon-btn" type="button" aria-label="Toggle dark mode">◐</button>
+    </div>
+  </header>
+  <main id="app" tabindex="-1"></main>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

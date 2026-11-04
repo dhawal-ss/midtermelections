@@ -42,6 +42,18 @@ services:
       init:
         condition: service_completed_successfully
 
+  # Election-night loop: pull live results, recompute projections every 60 s
+  live:
+    build: .
+    command: python -m scripts.run_live --interval 60
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://election:${DB_PASSWORD:-change_me}@postgres:5432/elections
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
   api:
     build: .
     command: uvicorn election_data.api:app --host 0.0.0.0 --port 8000

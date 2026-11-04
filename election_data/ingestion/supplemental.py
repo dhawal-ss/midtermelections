@@ -123,6 +123,7 @@ def _civicapi_race_observations(race: dict[str, Any], fmap: dict[str, str], offi
             vote_percentage=dig(cand, fmap.get("percent")),
             expected_vote_pct=pct_reporting,
             source_reported_at=dig(race, fmap.get("reported_at")) if fmap.get("reported_at") else None,
+            party=dig(cand, fmap.get("party")) if fmap.get("party") else None,
             extra={"winner": bool(dig(cand, fmap.get("winner_flag"))) if fmap.get("winner_flag") else False},
         )
 
