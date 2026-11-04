@@ -204,7 +204,7 @@ sources:
 # Margins are DEM minus REP two-party share on a -1..1 scale (0.10 = D+10).
 # ---------------------------------------------------------------------
 model:
-  version: live-v1
+  version: live-v1.1               # v1.1: Senate tie-break with an independent holding the balance
   simulations: 10000
   seed: null                       # set an integer for reproducible runs
   national_shift: 0.0              # expected national swing vs. baselines (+ favours DEM)

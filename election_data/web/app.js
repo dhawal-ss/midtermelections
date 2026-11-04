@@ -52,9 +52,9 @@ async function getJSON(url) {
 // Two ways to run: against the live API (server mode) or from exported JSON files (snapshot mode,
 // used when the dashboard is published as a static page). Routes are plain #names in both.
 const STATIC = document.querySelector('meta[name="dashboard-mode"]')?.content === "static";
-const DATASETS = { sim: "Simulated night", real: "Real data" };
-let dataset = (() => { try { return localStorage.getItem("dataset") || "sim"; } catch { return "sim"; } })();
-if (!DATASETS[dataset]) dataset = "sim";
+const DATASETS = { real: "Real results", sim: "Simulated night" };
+let dataset = (() => { try { return localStorage.getItem("dataset") || "real"; } catch { return "real"; } })();
+if (!DATASETS[dataset]) dataset = "real";
 const cache = new Map();
 const cached = (url) => { if (!cache.has(url)) cache.set(url, getJSON(url).catch((e) => { cache.delete(url); throw e; })); return cache.get(url); };
 const slug = (key) => key.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -124,6 +124,10 @@ function modeBanner(mode) {
   if (mode === "simulation") {
     return h("div", { class: "banner", role: "alert" },
       "SIMULATED DATA — synthetic results for testing the dashboard. Candidates are generic party placeholders. Nothing here is a real result.");
+  }
+  if (mode === "live") {
+    return h("div", { class: "banner info" },
+      "Preliminary, unofficial vote counts from civicAPI (a third-party feed). Win probabilities and “projected” statuses are this project's model estimates, not race calls. Nothing here is certified.");
   }
   if (mode === "awaiting_results") {
     return h("div", { class: "banner info" },
@@ -304,7 +308,10 @@ function chamberCard(name, chamber, races) {
       h("span", {}, h("i", { class: "swatch", style: { background: cssVar("--dem-likely") } }), "Likely"),
       h("span", {}, h("i", { class: "swatch", style: { background: cssVar("--dem-lean") } }), "Lean"),
       h("span", {}, h("i", { class: "swatch", style: { background: cssVar("--tossup") } }), "Toss-up")),
-    h("p", { class: "expect num" }, `Expected seats: D ${(es.DEM ?? 0).toFixed(1)} · R ${(es.REP ?? 0).toFixed(1)}`),
+    h("p", { class: "expect num" }, `Expected seats: D ${(es.DEM ?? 0).toFixed(1)} · R ${(es.REP ?? 0).toFixed(1)}`,
+      (es.OTHER ?? 0) >= 0.05 ? ` · Independent/other ${es.OTHER.toFixed(1)}` : ""),
+    (cp.NONE ?? 0) >= 0.005 ? h("p", { class: "expect num" },
+      `Undetermined ${probText(cp.NONE)}: outcomes where independents decide which party controls.`) : null,
     h("div", { class: "section-title" }, "Simulated Democratic seat totals"),
     seatHistogram(chamber, "DEM"));
 }
