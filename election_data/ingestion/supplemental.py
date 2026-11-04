@@ -80,15 +80,35 @@ def ingest_civicapi_results(conn: psycopg.Connection, client: CivicAPIClient | N
             queries.append(base)
     page_size = int(client.cfg.get("page_size", 100))
     unmapped: dict[str, int] = {}
+    # First pages are fetched concurrently: the client still starts at most one request per
+    # second, but a slow or failing state no longer blocks the others.
+    from concurrent.futures import ThreadPoolExecutor
+
+    def first_page(q: dict[str, Any]):
+        try:
+            return client.fetch_named("results", {**q, "limit": page_size, "offset": 0}), None
+        except Exception as exc:  # one failed request (e.g. a 502) must not lose the rest of the cycle
+            return None, exc
+
+    with ThreadPoolExecutor(max_workers=int(client.cfg.get("concurrency", 4))) as pool:
+        prefetched = list(pool.map(first_page, queries))
+
     with IngestionRun(conn, "civicapi", "live_results", {"queries": len(queries)}) as run:
-        for query in queries:
+        for query, (first, error) in zip(queries, prefetched):
             offset, pages = 0, 0
             while True:
-                try:
-                    data, url = client.fetch_named("results", {**query, "limit": page_size, "offset": offset})
-                except Exception as exc:  # one failed request (e.g. a 502) must not lose the rest of the cycle
-                    run.record_failure(f"civicAPI {query.get('province') or query.get('election_type')}: {exc}")
-                    break
+                if offset == 0:
+                    if error is not None:
+                        run.record_failure(f"civicAPI {query.get('province') or query.get('election_type')}: {error}")
+                        break
+                    data, url = first
+                else:
+                    try:
+                        data, url = client.fetch_named("results", {**query, "limit": page_size, "offset": offset})
+                    except Exception as exc:
+                        run.record_failure(f"civicAPI {query.get('province') or query.get('election_type')} "
+                                           f"offset {offset}: {exc}")
+                        break
                 races = dig(data, fmap.get("records_path")) or []
                 for race in races:
                     raw = run.store_raw("civicapi_race", race, str(dig(race, fmap.get("race_id")) or ""), url)

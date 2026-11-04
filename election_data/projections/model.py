@@ -299,11 +299,12 @@ def simulate_chamber(chamber: str, winner_party_draws: list[np.ndarray], decided
     dem_control = dem >= seats_needed
     rep_control = rep >= seats_needed
     if tie_breaker:
-        tie = (dem == seats_needed - 1) & (rep == seats_needed - 1)
+        # The tie-breaking party controls with one seat short of a majority: the other side can
+        # then reach at most a tie, whichever way independents caucus (e.g. 50 R / 49 D / 1 I).
         if tie_breaker == "DEM":
-            dem_control |= tie
+            dem_control |= (dem == seats_needed - 1) & ~rep_control
         elif tie_breaker == "REP":
-            rep_control |= tie
+            rep_control |= (rep == seats_needed - 1) & ~dem_control
     control = {"DEM": float(dem_control.mean()), "REP": float(rep_control.mean())}
     control["NONE"] = float(max(0.0, 1.0 - control["DEM"] - control["REP"]))
 

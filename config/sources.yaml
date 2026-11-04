@@ -83,6 +83,7 @@ sources:
         - params: {startDate: "2026-11-03", endDate: "2026-11-03", country: US, election_type: General}
           per_state: true
     page_size: 500
+    concurrency: 4                  # parallel requests; the client still starts at most 1/second
     field_maps:
       results:
         records_path: races

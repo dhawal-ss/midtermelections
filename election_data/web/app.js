@@ -510,12 +510,13 @@ async function viewRace(key) {
 }
 
 // ---------- snapshot mode ----------
-function snapshotBar() {
+function snapshotBar(generatedAt) {
   const group = h("div", { class: "seg-control", role: "group", "aria-label": "Dataset" },
     Object.entries(DATASETS).map(([k, label]) => h("button", { type: "button", "aria-pressed": String(k === dataset),
       onclick: () => { dataset = k; try { localStorage.setItem("dataset", k); } catch { /* storage unavailable */ } render(); } }, label)));
   return h("div", { class: "snapshot-bar" },
-    h("span", {}, "Static snapshot of the dashboard. Live updates need the server (", h("code", {}, "python -m scripts.run_live"), ")."), group);
+    h("span", {}, `Static snapshot${generatedAt ? ` taken ${new Date(generatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}` : ""}. `,
+      "Live updates need the server (", h("code", {}, "python -m scripts.run_live"), ")."), group);
 }
 
 // ---------- router + live updates ----------
@@ -533,7 +534,7 @@ async function render() {
   try {
     const nodes = isRace ? await viewRace(route.slice(5))
       : ["senate", "house", "governor"].includes(name) ? await viewOffice(name) : await viewOverview();
-    if (STATIC) nodes.unshift(snapshotBar());
+    if (STATIC) nodes.unshift(snapshotBar((await api.summary()).generated_at));
     const y = window.scrollY;
     app.replaceChildren(...nodes.filter(Boolean));
     window.scrollTo(0, y);

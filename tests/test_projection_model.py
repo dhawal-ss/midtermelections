@@ -99,6 +99,16 @@ def test_chamber_tie_breaker_and_holdovers():
     assert cp.expected_seats["DEM"] == pytest.approx(50.5)
 
 
+def test_tie_breaker_party_controls_with_independent_holding_balance():
+    # 50 R, 49 D, 1 independent: the VP's party controls whichever way the independent caucuses
+    r = np.array([2], dtype=np.int8)          # the one race is won by an independent
+    cp = simulate_chamber("senate", [r], [], {"DEM": 49, "REP": 50}, 51, tie_breaker="REP")
+    assert cp.control_prob["REP"] == 1.0 and cp.control_prob["NONE"] == 0.0
+    # 50 D, 49 R, 1 independent: depends on the independent -> undetermined
+    cp2 = simulate_chamber("senate", [r], [], {"DEM": 50, "REP": 49}, 51, tie_breaker="REP")
+    assert cp2.control_prob["NONE"] == 1.0
+
+
 def test_correlated_national_shock_widens_chamber_outcomes():
     rng = np.random.default_rng(0)
     params = ModelParams(simulations=5000, national_sd=0.0)
