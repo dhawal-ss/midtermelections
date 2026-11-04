@@ -1,0 +1,664 @@
+# =====================================================================
+# Source registry — US Midterm Election Intelligence Database
+#
+# Every URL here is UNVERIFIED until `python -m scripts.verify_sources`
+# has checked it from your network; results go to source_link_checks
+# and state_source_registry.urls_verified_at.
+#
+# A null URL, or adapter_status: not_implemented, means "no working
+# integration". Never treat it as completed coverage.
+# =====================================================================
+
+election:
+  year: 2026
+  general_election_date: "2026-11-03"
+  historical_cycles: [2014, 2016, 2018, 2020, 2022, 2024]
+
+coverage:
+  include_states: true
+  include_dc: true
+  include_counties: true
+  include_congressional_districts: true
+  include_state_legislative_districts: true
+  include_local_jurisdictions: true
+
+# ---------------------------------------------------------------------
+# National / third-party sources
+# authority_level: official_election_authority | official_federal |
+#                  academic | third_party | commercial | project_reference
+# ---------------------------------------------------------------------
+sources:
+  openfec:
+    name: OpenFEC API
+    base_url: https://api.open.fec.gov/v1
+    source_type: api
+    authority_level: official_federal
+    access_type: free_key            # https://api.open.fec.gov/developers/
+    terms_url: https://www.fec.gov/updates/sale-or-use-contributor-information/
+    license_notes: >-
+      Public data. Individual contributor names/addresses may not be sold or used
+      to solicit contributions or for commercial purposes (52 U.S.C. 30111(a)(4)).
+    rate_limit_per_hour: 1000        # documented standard key limit; DEMO_KEY is far lower
+    enabled: true
+
+  election_org:
+    name: Election.org
+    base_url: https://election.org/api/v1
+    source_type: csv_download
+    authority_level: third_party
+    access_type: free_public_beta
+    license_notes: Candidate filings are not proof of ballot qualification (provider warning).
+    enabled: true
+    datasets:
+      federal_contests_2026: /downloads/federal-contests-2026.csv
+      federal_candidates_2026: /downloads/federal-candidates-2026.csv
+      federal_results_2020: /downloads/federal-results-2020.csv
+      federal_results_2022: /downloads/federal-results-2022.csv
+      federal_results_2024: /downloads/federal-results-2024.csv
+    # Optional: columns that MUST exist. Empty = record fingerprint only and
+    # flag any change against the previously seen column set.
+    required_columns: {}
+
+  civicapi:
+    name: civicAPI
+    base_url: https://civicapi.org/api/v2
+    source_type: api
+    authority_level: third_party
+    access_type: free_no_key
+    enabled: false                   # enable after filling endpoints from the v2 docs
+    # Endpoint paths and field mappings MUST be copied from the provider's
+    # current v2 reference. They are intentionally left blank, not guessed.
+    endpoints:
+      results: null
+      race_calls: null
+      polls: null
+    field_maps:
+      results: {}                    # e.g. {state: "state", office: "office", ...}
+      polls: {}
+
+  census:
+    name: US Census Bureau API
+    base_url: https://api.census.gov/data
+    source_type: api
+    authority_level: official_federal
+    access_type: free_key            # works without a key at low volume
+    terms_url: https://www.census.gov/data/developers/about/terms-of-service.html
+    enabled: true
+    # ACS 1-year 2024 uses 119th Congress districts. States that redrew maps
+    # mid-decade for 2026 will NOT match these boundaries.
+    acs_dataset: "2024/acs/acs1"
+    variables:
+      B01003_001E: Total population
+      B29001_001E: Citizen voting-age population
+      B01002_001E: Median age
+      B19013_001E: Median household income
+      B15003_022E: Population 25+ with bachelor's degree
+
+  google_civic:
+    name: Google Civic Information API
+    base_url: https://www.googleapis.com/civicinfo/v2
+    source_type: api
+    authority_level: third_party
+    access_type: free_key
+    license_notes: Representatives endpoints were retired in 2025; elections, voterinfo and divisions remain.
+    enabled: true
+
+  mit_election_lab:
+    name: MIT Election Data and Science Lab
+    base_url: https://dataverse.harvard.edu
+    source_type: csv_download
+    authority_level: academic
+    access_type: free_no_key
+    attribution: MIT Election Data and Science Lab, Harvard Dataverse
+    enabled: true
+    datasets:
+      us_house:
+        doi: doi:10.7910/DVN/IG0UN2
+        file_pattern: "house"
+        office: US HOUSE
+      us_senate:
+        doi: doi:10.7910/DVN/PEJ5QU
+        file_pattern: "senate"
+        office: US SENATE
+      us_president:
+        doi: doi:10.7910/DVN/42MVDX
+        file_pattern: "president"
+        office: US PRESIDENT
+
+  eac_eavs:
+    name: US Election Assistance Commission (EAVS)
+    base_url: https://www.eac.gov/research-and-data/datasets-codebooks-and-surveys
+    source_type: csv_download
+    authority_level: official_federal
+    access_type: free_no_key
+    enabled: true
+    # EAC file URLs change with each release; download manually and point
+    # `python -m scripts.ingest_all --only eavs --file <path>` at it.
+    latest_published_cycle: 2024
+    notes: The 2026 EAVS is a separate collection; do not assume its results are published.
+
+  ap_elections:
+    name: Associated Press Elections API
+    base_url: https://api.ap.org/v3
+    source_type: api
+    authority_level: commercial
+    access_type: commercial
+    enabled: false
+    notes: Commercial licence required. Race calls are projections, not certification.
+
+  project_reference:
+    name: Project reference data
+    base_url: null
+    source_type: reference
+    authority_level: project_reference
+    access_type: none
+    enabled: true
+    notes: >-
+      Seeded constants (FIPS codes, 2020 apportionment, 2026 Senate/governor seats).
+      Marked unverified until corroborated by FEC / state sources.
+
+# ---------------------------------------------------------------------
+# Update schedules (proposed polling intervals, not provider refresh rates)
+# ---------------------------------------------------------------------
+schedules:
+  fec_candidates:        {every_hours: 24}
+  fec_committees:        {every_hours: 24}
+  fec_finance_totals:    {every_hours: 12}
+  fec_contributions:     {every_hours: 12}
+  fec_expenditures:      {every_hours: 12}
+  fec_election_dates:    {every_hours: 24}
+  election_org:          {every_hours: 24}
+  # ballot_status:       {every_hours: 12}   # enable once a state candidate-list adapter exists
+  polls:                 {every_hours: 12}
+  census_demographics:   {every_days: 30}
+  historical_results:    {every_days: 30}
+  verify_sources:        {every_days: 7}
+  validation:            {every_hours: 6}
+  daily_report:          {cron: "15 6 * * *"}
+  # Election window (election day through certification)
+  live_results:          {every_minutes: 5,  active_from: "2026-11-03T18:00:00-05:00", active_to: "2026-11-10T00:00:00-05:00"}
+  certification_watch:   {every_minutes: 60, active_from: "2026-11-04T00:00:00-05:00", active_to: "2027-01-06T00:00:00-05:00"}
+
+# ---------------------------------------------------------------------
+# Official state and DC election authorities
+#
+# results_adapter / adapter_status describe the integration honestly:
+#   not_implemented – no code reads this state's data yet
+#   manual_csv      – load downloaded files with the generic CSV adapter
+#   configured      – adapter configured, not yet tested against live data
+#   tested          – tested against a live election
+#   production      – monitored, in production use
+# ---------------------------------------------------------------------
+states:
+  - code: AL
+    name: Alabama
+    office: Alabama Secretary of State
+    official_election_url: https://www.sos.alabama.gov/alabama-votes
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://myinfo.alabamavotes.gov/voterview
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: AK
+    name: Alaska
+    office: Alaska Division of Elections
+    official_election_url: https://www.elections.alaska.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://myvoterinformation.alaska.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Top-four primary and ranked-choice general; RCV tabulation rounds need their own model.
+  - code: AZ
+    name: Arizona
+    office: Arizona Secretary of State
+    official_election_url: https://azsos.gov/elections
+    results_url: https://results.arizona.vote/
+    candidates_url: null
+    voter_lookup_url: https://my.arizona.vote/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: AR
+    name: Arkansas
+    office: Arkansas Secretary of State
+    official_election_url: https://www.sos.arkansas.gov/elections
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://www.voterview.ar-nova.org/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: CA
+    name: California
+    office: California Secretary of State
+    official_election_url: https://www.sos.ca.gov/elections
+    results_url: https://electionresults.sos.ca.gov/
+    candidates_url: null
+    voter_lookup_url: https://voterstatus.sos.ca.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Top-two primary. Counting and canvass run weeks past election day.
+  - code: CO
+    name: Colorado
+    office: Colorado Secretary of State
+    official_election_url: https://www.coloradosos.gov/pubs/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://www.govotecolorado.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: CT
+    name: Connecticut
+    office: Connecticut Secretary of the State
+    official_election_url: https://portal.ct.gov/sots/election-services
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: DE
+    name: Delaware
+    office: Delaware Department of Elections
+    official_election_url: https://elections.delaware.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: DC
+    name: District of Columbia
+    office: DC Board of Elections
+    official_election_url: https://www.dcboe.org/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Non-voting House delegate; no Senate seats.
+  - code: FL
+    name: Florida
+    office: Florida Division of Elections
+    official_election_url: https://dos.fl.gov/elections/
+    results_url: https://results.elections.myflorida.com/
+    candidates_url: null
+    voter_lookup_url: https://registration.elections.myflorida.com/CheckVoterStatus
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: GA
+    name: Georgia
+    office: Georgia Secretary of State
+    official_election_url: https://sos.ga.gov/elections-division-georgia-secretary-states-office
+    results_url: https://results.sos.ga.gov/
+    candidates_url: null
+    voter_lookup_url: https://mvp.sos.ga.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: General-election runoffs if no candidate exceeds 50%.
+  - code: HI
+    name: Hawaii
+    office: Hawaii Office of Elections
+    official_election_url: https://elections.hawaii.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: ID
+    name: Idaho
+    office: Idaho Secretary of State
+    official_election_url: https://voteidaho.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: IL
+    name: Illinois
+    office: Illinois State Board of Elections
+    official_election_url: https://www.elections.il.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: IN
+    name: Indiana
+    office: Indiana Election Division
+    official_election_url: https://www.in.gov/sos/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://indianavoters.in.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: IA
+    name: Iowa
+    office: Iowa Secretary of State
+    official_election_url: https://sos.iowa.gov/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: KS
+    name: Kansas
+    office: Kansas Secretary of State
+    official_election_url: https://sos.ks.gov/elections/elections.html
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://myvoteinfo.voteks.org/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: KY
+    name: Kentucky
+    office: Kentucky State Board of Elections
+    official_election_url: https://elect.ky.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://vrsws.sos.ky.gov/vic/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: LA
+    name: Louisiana
+    office: Louisiana Secretary of State
+    official_election_url: https://www.sos.la.gov/ElectionsAndVoting/
+    results_url: https://voterportal.sos.la.gov/graphical
+    candidates_url: null
+    voter_lookup_url: https://voterportal.sos.la.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Moved to closed party primaries for congressional races starting 2026; verify contest stages.
+  - code: ME
+    name: Maine
+    office: Maine Secretary of State, Bureau of Corporations, Elections and Commissions
+    official_election_url: https://www.maine.gov/sos/cec/elec/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Ranked-choice voting for federal general elections.
+  - code: MD
+    name: Maryland
+    office: Maryland State Board of Elections
+    official_election_url: https://elections.maryland.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://voterservices.elections.maryland.gov/VoterSearch
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MA
+    name: Massachusetts
+    office: Massachusetts Secretary of the Commonwealth, Elections Division
+    official_election_url: https://www.sec.state.ma.us/divisions/elections/
+    results_url: https://electionstats.state.ma.us/
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MI
+    name: Michigan
+    office: Michigan Bureau of Elections
+    official_election_url: https://www.michigan.gov/sos/elections
+    results_url: https://mielections.us/election/results/
+    candidates_url: null
+    voter_lookup_url: https://mvic.sos.state.mi.us/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MN
+    name: Minnesota
+    office: Minnesota Secretary of State
+    official_election_url: https://www.sos.state.mn.us/elections-voting/
+    results_url: https://electionresults.sos.mn.gov/
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MS
+    name: Mississippi
+    office: Mississippi Secretary of State
+    official_election_url: https://www.sos.ms.gov/elections-voting
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MO
+    name: Missouri
+    office: Missouri Secretary of State
+    official_election_url: https://www.sos.mo.gov/elections
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://voteroutreach.sos.mo.gov/portal/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: MT
+    name: Montana
+    office: Montana Secretary of State
+    official_election_url: https://sosmt.gov/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: NE
+    name: Nebraska
+    office: Nebraska Secretary of State
+    official_election_url: https://sos.nebraska.gov/elections
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Unicameral, nonpartisan legislature.
+  - code: NV
+    name: Nevada
+    office: Nevada Secretary of State
+    official_election_url: https://www.nvsos.gov/sos/elections
+    results_url: https://silverstateelection.nv.gov/
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: NH
+    name: New Hampshire
+    office: New Hampshire Secretary of State
+    official_election_url: https://www.sos.nh.gov/elections
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: NJ
+    name: New Jersey
+    office: New Jersey Division of Elections
+    official_election_url: https://www.nj.gov/state/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: NM
+    name: New Mexico
+    office: New Mexico Secretary of State
+    official_election_url: https://www.sos.nm.gov/voting-and-elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: NY
+    name: New York
+    office: New York State Board of Elections
+    official_election_url: https://www.elections.ny.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://voterlookup.elections.ny.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Fusion voting — the same candidate can appear on several party lines.
+  - code: NC
+    name: North Carolina
+    office: North Carolina State Board of Elections
+    official_election_url: https://www.ncsbe.gov/
+    results_url: https://er.ncsbe.gov/
+    candidates_url: null
+    voter_lookup_url: https://vt.ncsbe.gov/RegLkup/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: NCSBE publishes bulk results and voter-history files at dl.ncsbe.gov — good first adapter candidate.
+  - code: ND
+    name: North Dakota
+    office: North Dakota Secretary of State
+    official_election_url: https://vip.sos.nd.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: No voter registration.
+  - code: OH
+    name: Ohio
+    office: Ohio Secretary of State
+    official_election_url: https://www.ohiosos.gov/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://voterlookup.ohiosos.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: OK
+    name: Oklahoma
+    office: Oklahoma State Election Board
+    official_election_url: https://oklahoma.gov/elections.html
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: OR
+    name: Oregon
+    office: Oregon Secretary of State, Elections Division
+    official_election_url: https://sos.oregon.gov/voting-elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: PA
+    name: Pennsylvania
+    office: Pennsylvania Department of State
+    official_election_url: https://www.pa.gov/agencies/dos/programs/voting-and-elections
+    results_url: https://www.electionreturns.pa.gov/
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: RI
+    name: Rhode Island
+    office: Rhode Island Department of State, Elections Division
+    official_election_url: https://vote.sos.ri.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: SC
+    name: South Carolina
+    office: South Carolina Election Commission
+    official_election_url: https://scvotes.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: SD
+    name: South Dakota
+    office: South Dakota Secretary of State
+    official_election_url: https://sdsos.gov/elections-voting/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: TN
+    name: Tennessee
+    office: Tennessee Secretary of State, Division of Elections
+    official_election_url: https://sos.tn.gov/elections
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: TX
+    name: Texas
+    office: Texas Secretary of State, Elections Division
+    official_election_url: https://www.sos.state.tx.us/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Primary runoffs; mid-decade congressional redistricting for 2026.
+  - code: UT
+    name: Utah
+    office: Utah Lieutenant Governor, Elections Office
+    official_election_url: https://vote.utah.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: VT
+    name: Vermont
+    office: Vermont Secretary of State, Elections Division
+    official_election_url: https://sos.vermont.gov/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: VA
+    name: Virginia
+    office: Virginia Department of Elections
+    official_election_url: https://www.elections.virginia.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: WA
+    name: Washington
+    office: Washington Secretary of State, Elections Division
+    official_election_url: https://www.sos.wa.gov/elections
+    results_url: https://results.vote.wa.gov/
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Top-two primary; all-mail voting, late-arriving ballots counted for days.
+  - code: WV
+    name: West Virginia
+    office: West Virginia Secretary of State
+    official_election_url: https://sos.wv.gov/elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented
+  - code: WI
+    name: Wisconsin
+    office: Wisconsin Elections Commission
+    official_election_url: https://elections.wi.gov/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: https://myvote.wi.gov/
+    results_adapter: null
+    adapter_status: not_implemented
+    notes: Statewide results are compiled by counties; WEC publishes canvass reports after certification.
+  - code: WY
+    name: Wyoming
+    office: Wyoming Secretary of State, Elections Division
+    official_election_url: https://sos.wyo.gov/Elections/
+    results_url: null
+    candidates_url: null
+    voter_lookup_url: null
+    results_adapter: null
+    adapter_status: not_implemented

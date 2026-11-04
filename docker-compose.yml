@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: election-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: elections
+      POSTGRES_USER: election
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - election_db:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U election -d elections"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot: apply migrations + seed reference data
+  init:
+    build: .
+    command: python -m scripts.initialize_db
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://election:${DB_PASSWORD:-change_me}@postgres:5432/elections
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: python -m scripts.run_scheduler
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://election:${DB_PASSWORD:-change_me}@postgres:5432/elections
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  api:
+    build: .
+    command: uvicorn election_data.api:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://election:${DB_PASSWORD:-change_me}@postgres:5432/elections
+    ports:
+      - "8000:8000"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+volumes:
+  election_db:

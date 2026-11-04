@@ -1,0 +1,10 @@
+# Mapping for EAC EAVS state-level CSV. Column names differ per release:
+# check the codebook for the year you downloaded.
+source_key: eac_eavs
+source_url: https://www.eac.gov/research-and-data/datasets-codebooks-and-surveys
+reporting_period: "2024 EAVS"
+state_column: state_abbr
+metric_columns:
+  a1a: registered_voters_total
+  a1b: registered_voters_active
+  f1a: ballots_cast_total

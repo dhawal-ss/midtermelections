@@ -1,0 +1,20 @@
+# Column mapping for the generic CSV results adapter.
+# Copy this file per state/export and adjust column names to the official file.
+source_url: https://example.gov/official-results-export.csv   # the URL you downloaded from
+result_stage: preliminary          # preliminary | unofficial_complete | canvassed | certified
+source_reported_at: "2026-11-04T02:15:00-05:00"   # timestamp printed on the export, if any
+reporting_unit_type: county
+columns:
+  office: Contest Name
+  district: District
+  choice: Candidate Name
+  votes: Total Votes
+  reporting_unit: County
+  precincts_reporting: Precincts Reported
+  precincts_total: Total Precincts
+office_values:
+  "United States Senator": US SENATE
+  "US Senate": US SENATE
+  "US House of Representatives": US HOUSE
+  "Representative in Congress": US HOUSE
+  "Governor": GOVERNOR

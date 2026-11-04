@@ -1,0 +1,18 @@
+# Mapping for python -m scripts.ingest_all --only polls_csv --file polls.csv --mapping examples/polls_mapping.yaml
+source_key: civicapi            # any key in config/sources.yaml (add one per pollster if you like)
+source_url: https://example.org/pollster-release.csv
+fields:
+  external_id: poll_id
+  pollster: pollster
+  sponsor: sponsor
+  population: population        # lv / rv / a / v
+  sample_size: sample_size
+  field_start: start_date
+  field_end: end_date
+  margin_of_error: moe
+  methodology: methodology
+  state: state
+  office: office                # US SENATE / US HOUSE / GOVERNOR
+  district: district
+  url: url
+  answer_columns: [dem_candidate_pct, rep_candidate_pct, undecided_pct]
